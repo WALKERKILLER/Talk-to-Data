@@ -1,0 +1,44 @@
+{
+  "name": "talk-to-data",
+  "version": "1.0.0",
+  "description": "A conversational data analysis tool.",
+  "main": "main.js",
+  "author": "WALKERKILLER",
+  "license": "ISC",
+  "scripts": {
+    "start": "concurrently \"npm:start-python\" \"npm:start-electron\"",
+    "start-python": "python app.py",
+    "start-electron": "electron .",
+    "build:python": "pyinstaller py-backend.spec",
+    "build:electron": "electron-builder",
+    "package": "npm run build:python && npm run build:electron"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^31.0.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.yourcompany.talktodata",
+    "productName": "Talk to Data",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/py-backend",
+        "to": "app/py-backend"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    }
+  }
+}

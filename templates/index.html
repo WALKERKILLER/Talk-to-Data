@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talk to Data - 智能数据分析</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- KaTeX for Math -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <!-- highlight.js for Code Blocks -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='atom-one-dark.min.css') }}">
+    <!-- Main Stylesheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-theme="dark">
+
+    <!-- Custom Titlebar for Electron -->
+    <div class="titlebar">
+        <div class="titlebar-drag-region"></div>
+        <div class="title">Talk to Data</div>
+        <div class="window-controls">
+            <button id="minimize-btn" class="control-btn" title="最小化"><svg width="12" height="12" viewBox="0 0 12 12"><rect fill="currentColor" width="10" height="1" x="1" y="5.5"></rect></svg></button>
+            <button id="maximize-btn" class="control-btn" title="最大化/还原"><svg width="12" height="12" viewBox="0 0 12 12"><rect width="9" height="9" x="1.5" y="1.5" fill="none" stroke="currentColor" stroke-width="1"></rect></svg></button>
+            <button id="close-btn" class="control-btn close" title="关闭"><svg width="12" height="12" viewBox="0 0 12 12"><polygon fill="currentColor" points="11 1.576 10.424 1 6 5.424 1.576 1 1 1.576 5.424 6 1 10.424 1.576 11 6 6.576 10.424 11 11 10.424 6.576 6"></polygon></svg></button>
+        </div>
+    </div>
+
+    <div id="background-overlay"></div>
+    <button id="menu-toggle">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></svg>
+    </button>
+    
+    <div class="app-layout">
+        <aside class="sidebar glass-panel" id="sidebar">
+            <div class="sidebar-header">
+                <h2>Talk to Data</h2>
+                <p>对话式分析工具</p>
+            </div>
+            <div class="sidebar-section">
+                <h4>开始分析</h4>
+                <form id="analysis-form">
+                    <div class="form-group">
+                        <label for="task-input">分析任务</label>
+                        <textarea id="task-input" name="task" rows="4" placeholder="例如：分析各地区的总销售额..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="file-input">上传数据 (CSV)</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="file-input" name="file" accept=".csv" required>
+                            <span id="file-name" class="file-name-label">未选择文件</span>
+                        </div>
+                    </div>
+                    <button type="submit" id="submit-btn" class="btn primary">开始分析</button>
+                </form>
+            </div>
+            <div class="sidebar-section">
+                <h4>模型设置</h4>
+                <form id="settings-form">
+                    <div class="form-group">
+                        <label for="api-base-url">API 地址 (Base URL)</label>
+                        <input type="url" id="api-base-url" placeholder="例如: https://api.deepseek.com/v1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="api-key">API Key</label>
+                        <input type="password" id="api-key" placeholder="在此输入您的 API Key" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="model-name">模型名称</label>
+                        <input type="text" id="model-name" placeholder="例如: deepseek-chat" required>
+                    </div>
+                    <div class="button-group">
+                        <button type="button" id="save-settings-btn" class="btn secondary">保存设置</button>
+                        <button type="button" id="test-connection-btn" class="btn tertiary">测试连接</button>
+                    </div>
+                    <div id="connection-status" class="connection-status"></div>
+                </form>
+            </div>
+            <div class="sidebar-footer">
+                 <button id="export-btn" class="btn tertiary hidden">导出 Markdown</button>
+                 <button id="theme-toggle" class="btn tertiary">切换主题</button>
+            </div>
+        </aside>
+        <main class="main-content glass-panel">
+            <div id="message-container">
+                <!-- Analysis steps and welcome message will be dynamically inserted here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Floating Progress Badge -->
+    <div id="progress-badge" class="progress-badge hidden">
+        <div class="progress-circle">
+            <div class="progress-circle-inner"><span id="progress-percent">0%</span></div>
+        </div>
+        <div class="progress-text-container"><span id="progress-status-text"></span></div>
+    </div>
+    
+    <!-- Custom Context Menu HTML Structure -->
+    <div id="context-menu" class="custom-context-menu"></div>
+
+    <!-- External Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" onload="if(window.renderMathInElement) renderMathInElement(document.body);"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

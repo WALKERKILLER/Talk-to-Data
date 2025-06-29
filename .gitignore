@@ -1,0 +1,22 @@
+# 忽略所有文件
+*
+
+# 保留 README.md
+!README.md
+
+# 保留项目结构中列出的文件和目录
+!app.py
+!talk_to_data_core.py
+!tools.py
+!evaluator.py
+!main.js
+!package.json
+!preload.js
+!py-backend.spec
+!static/
+!static/script.js
+!static/style.css
+!templates/
+!templates/index.html
+!LICENSE
+!.gitignore
