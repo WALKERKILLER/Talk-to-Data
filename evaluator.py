@@ -1,4 +1,5 @@
 # evaluator.py
+
 import json
 import matplotlib
 matplotlib.use('Agg')
@@ -11,9 +12,13 @@ plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 class Evaluator:
-    def __init__(self, api_key, base_url="https://api.deepseek.com/v1"):
+    # --- (核心修改) ---
+    # 1. 移除 base_url 的硬编码默认值 "https://api.deepseek.com/v1"
+    # 2. 新增 model_name 参数，用于接收用户指定的模型
+    def __init__(self, api_key, base_url, model_name):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.model = "deepseek-reasoner"
+        # 3. 使用传入的 model_name，而不是硬编码的 "deepseek-reasoner"
+        self.model = model_name
 
     def generate_performance_chart(self, history, save_path):
         steps = []
@@ -69,6 +74,7 @@ class Evaluator:
 }}`
 """
         try:
+            # 现在这里的 self.model 会使用用户指定的模型了
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": eval_prompt}],
@@ -77,8 +83,10 @@ class Evaluator:
             )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
+            # 改进错误提示，让用户知道是评估环节出的问题
+            error_message = f"调用评估模型时发生错误: {e}"
             return {
-                "score": 0, "justification": f"评估时发生错误: {e}",
+                "score": 0, "justification": error_message,
                 "details": {"completeness": 0, "accuracy": 0, "insight": 0, "efficiency": 0, "visualization": 0},
                 "error": str(e)
             }

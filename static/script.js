@@ -55,7 +55,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Sidebar and form controls
         ui.analysisForm.addEventListener('submit', handleFormSubmit);
-        ui.fileInput.addEventListener('change', () => { ui.fileName.textContent = ui.fileInput.files.length > 0 ? ui.fileInput.files[0].name : '未选择文件'; ui.fileName.style.color = 'var(--text-primary)'; });
+        
+        // (MODIFIED) Handle file input changes for single or multiple files
+        ui.fileInput.addEventListener('change', () => {
+            const files = ui.fileInput.files;
+            if (files.length > 1) {
+                ui.fileName.textContent = `${files.length} 个文件已选择`;
+            } else if (files.length === 1) {
+                ui.fileName.textContent = files[0].name;
+            } else {
+                ui.fileName.textContent = '未选择文件';
+            }
+            ui.fileName.style.color = 'var(--text-primary)';
+        });
+
         ui.saveSettingsBtn.addEventListener('click', saveSettings);
         ui.testConnectionBtn.addEventListener('click', testConnection);
         ui.themeToggle.addEventListener('click', toggleTheme);
@@ -218,15 +231,30 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const modelSettings = { api_base_url: ui.apiBaseUrl.value.trim(), api_key: ui.apiKey.value.trim(), model_name: ui.modelName.value.trim() };
         if (!modelSettings.api_base_url || !modelSettings.api_key || !modelSettings.model_name) { alert('请在“模型设置”中填写完整的 API 地址、API Key 和模型名称。'); return; }
+        
         const task = ui.taskInput.value;
-        const file = ui.fileInput.files[0];
-        if (!task || !file) { alert('请填写分析任务并选择一个CSV文件。'); return; }
+        const files = ui.fileInput.files; // (MODIFIED) Get all files
+        
+        if (!task || files.length === 0) { // (MODIFIED) Check if any file is selected
+            alert('请填写分析任务并选择至少一个数据文件。'); 
+            return; 
+        }
+
         resetUIForAnalysis();
-        displayUserRequest(task, file.name);
+        
+        const filenames = Array.from(files).map(f => f.name); // (MODIFIED) Get all filenames
+        displayUserRequest(task, filenames); // (MODIFIED) Pass all filenames
+        
         const formData = new FormData();
         formData.append('task', task);
-        formData.append('file', file);
+        
+        // (MODIFIED) Append all files to FormData
+        for (let i = 0; i < files.length; i++) {
+            formData.append('file', files[i]);
+        }
+        
         for (const key in modelSettings) { formData.append(key, modelSettings[key]); }
+        
         try {
             showProgressBadge();
             const response = await fetch('/run_analysis', { method: 'POST', body: formData });
@@ -313,9 +341,19 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     const renderActionCard = (actionData) => { const toolMatch = actionData.match(/调用工具: ([\w_]+)/); const argsMatch = actionData.match(/参数: (\{.*\})$/s); if (!toolMatch || !argsMatch) return `<div class="action-card"><div class="param-item">${actionData}</div></div>`; const toolName = toolMatch[1]; let args = {}; try { args = JSON.parse(argsMatch[1]); } catch (e) { return `<div class="action-card"><div class="tool-name">${toolName}</div><div class="param-item"><pre>${argsMatch[1]}</pre></div></div>`; } const argKeys = Object.keys(args); let paramsHtml; if (argKeys.length === 0) { paramsHtml = '<div class="param-item">无参数</div>'; } else if (argKeys.length === 1) { const value = args[argKeys[0]]; const sanitizedValue = String(value).replace(/</g, "<").replace(/>/g, ">"); paramsHtml = `<div class="param-item"><pre><code>${sanitizedValue}</code></pre></div>`; } else { paramsHtml = argKeys.map(key => { const value = args[key]; const valueStr = JSON.stringify(value, null, 2); const sanitizedValue = valueStr.replace(/</g, "<").replace(/>/g, ">"); return `<div class="param-item"><strong>${key}:</strong><pre><code>${sanitizedValue}</code></pre></div>`; }).join(''); } return `<div class="action-card"><div class="tool-name">${toolName}</div>${paramsHtml}</div>`; };
-    const createWelcomeMessage = () => { ui.messageContainer.innerHTML = ''; const welcomeHtml = `<h3>${icons.system} 欢迎使用 Talk to Data</h3><p>这是一个基于大语言模型的对话式数据分析工具。请在左侧侧边栏中：</p><ol><li>输入您的分析任务，例如：<em>"请分析数据，找出销售额最高的三个产品，并绘制柱状图"</em>。</li><li>上传您的 CSV 数据文件。</li><li>点击“开始分析”按钮，在此处查看实时分析过程。</li></ol>`; createBubble(welcomeHtml, 'system-message', true); };
+    const createWelcomeMessage = () => { ui.messageContainer.innerHTML = ''; const welcomeHtml = `<h3>${icons.system} 欢迎使用 Talk to Data</h3><p>这是一个基于大语言模型的对话式数据分析工具。请在左侧侧边栏中：</p><ol><li>输入您的分析任务，例如：<em>"请分析数据，找出销售额最高的三个产品，并绘制柱状图"</em>。</li><li>上传您的数据文件（支持CSV, Excel, JSON, Shapefile等）。</li><li>点击“开始分析”按钮，在此处查看实时分析过程。</li></ol>`; createBubble(welcomeHtml, 'system-message', true); };
     const createBubble = (content, type, isHtml) => { const bubble = document.createElement('div'); bubble.className = `message-bubble ${type}`; if (isHtml) bubble.innerHTML = content; else bubble.textContent = content; ui.messageContainer.appendChild(bubble); scrollToBottom(); return bubble; };
-    const displayUserRequest = (task, filename) => { const bubble = createBubble('', 'user-request-message', true); bubble.innerHTML = `${DOMPurify.sanitize(marked.parse(task))}<div class="file-info">📄 ${filename}</div>`; if (window.renderMathInElement) renderMathInElement(bubble, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}] }); };
+    
+    // (MODIFIED) Display multiple filenames
+    const displayUserRequest = (task, filenames) => { 
+        const bubble = createBubble('', 'user-request-message', true);
+        const fileListHtml = filenames.map(name => `<div class="file-info">📄 ${DOMPurify.sanitize(name)}</div>`).join('');
+        bubble.innerHTML = `${DOMPurify.sanitize(marked.parse(task))}${fileListHtml}`;
+        if (window.renderMathInElement) {
+            renderMathInElement(bubble, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}] });
+        } 
+    };
+
     const setFormState = (enabled) => { ui.submitBtn.disabled = !enabled; ui.submitBtn.textContent = enabled ? '开始分析' : '分析中...'; };
     const toggleTheme = () => { const newTheme = document.body.dataset.theme === 'dark' ? 'light' : 'dark'; document.body.dataset.theme = newTheme; localStorage.setItem('theme', newTheme); };
     const toggleSidebar = () => { ui.sidebar.classList.toggle('open'); ui.overlay.classList.toggle('open'); };

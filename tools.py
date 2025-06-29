@@ -1,4 +1,5 @@
 # tools.py
+
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
@@ -30,6 +31,7 @@ class ToolManager:
             "generate_plot": self.generate_plot,
             "list_dataframes": self.list_dataframes,
             "describe_data": self.describe_data,
+            "join_dataframes": self.join_dataframes,
             "correlation_analysis": self.correlation_analysis,
             "handle_missing_values": self.handle_missing_values,
             "train_linear_regression": self.train_linear_regression,
@@ -38,12 +40,26 @@ class ToolManager:
 
     def get_tool_definitions(self):
         """供 LLM 理解的工具定义"""
-        # --- 关键修正：现在不再需要 save_path 占位符了 ---
         return [
             {"name": "run_python_code", "description": "执行Python代码来操作`dataframes`字典中的数据。例如: `print(dataframes['initial_data'].head())`", "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
             {"name": "generate_plot", "description": "执行Python代码生成图表。代码中必须包含`plt.savefig(save_path)`。一个名为 `save_path` 的变量会自动提供给你，你必须直接使用它。", "parameters": {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}},
             {"name": "list_dataframes", "description": "列出内存中所有DataFrame的名称及其信息。", "parameters": {}},
             {"name": "describe_data", "description": "生成DataFrame的描述性统计信息。", "parameters": {"type": "object", "properties": {"df_name": {"type": "string"}}, "required": ["df_name"]}},
+            {
+                "name": "join_dataframes",
+                "description": "合并两个DataFrame并创建一个新的DataFrame。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "left_df_name": {"type": "string", "description": "左侧DataFrame的名称"},
+                        "right_df_name": {"type": "string", "description": "右侧DataFrame的名称"},
+                        "on": {"type": "array", "items": {"type": "string"}, "description": "用于连接的列名列表"},
+                        "how": {"type": "string", "enum": ["inner", "outer", "left", "right"], "description": "连接类型"},
+                        "new_df_name": {"type": "string", "description": "新创建的合并后DataFrame的名称"}
+                    },
+                    "required": ["left_df_name", "right_df_name", "on", "how", "new_df_name"]
+                }
+            },
             {"name": "correlation_analysis", "description": "计算DataFrame中数值列的相关系数矩阵。", "parameters": {"type": "object", "properties": {"df_name": {"type": "string"}}, "required": ["df_name"]}},
             {"name": "handle_missing_values", "description": "处理DataFrame中的缺失值。", "parameters": {"type": "object", "properties": {"df_name": {"type": "string"}, "method": {"type": "string", "enum": ["fill_mean", "fill_median", "fill_mode", "drop"]}}, "required": ["df_name", "method"]}},
             {"name": "train_linear_regression", "description": "训练一个简单的线性回归模型。", "parameters": {"type": "object", "properties": {"df_name": {"type": "string"}, "target_column": {"type": "string"}, "feature_columns": {"type": "array", "items": {"type": "string"}}}, "required": ["df_name", "target_column", "feature_columns"]}},
@@ -70,39 +86,26 @@ class ToolManager:
 
     def generate_plot(self, code: str):
         plot_filename = f"{uuid.uuid4()}.png"
-        
-        # self.plot_save_dir 是从 app.py 传来的绝对路径
         save_path = os.path.join(self.plot_save_dir, plot_filename)
-        
-        # --- 直接将 save_path 变量注入 exec 环境 ---
-        # 不再使用 .format()，从根本上杜绝路径字符串转义问题。
-        # LLM 生成的代码现在应该是 `plt.savefig(save_path)`
-        
         try:
-            # 准备执行环境
             exec_globals = {
                 "dataframes": self.state["dataframes"],
                 "plt": plt,
                 "pd": pd,
                 "np": np,
-                "save_path": save_path  # <-- 核心修复！直接注入路径变量
+                "save_path": save_path
             }
             exec_globals.update(self.state["dataframes"])
-
-            # 直接执行代码，无需切换工作目录
             exec(code, exec_globals)
-
         except Exception as e:
             import traceback
             traceback.print_exc()
             return f"绘图代码执行错误: [{type(e).__name__}] {e}"
-
         if os.path.exists(save_path):
             self.state["plots"].append(save_path)
             return f"图表已生成并保存于: {save_path}"
         else:
             return f"错误: 绘图代码已执行，但未在预期路径 '{save_path}' 找到图表文件。请确保代码中调用了 `plt.savefig(save_path)`。"
-
 
     def list_dataframes(self):
         if not self.state["dataframes"]: return "当前内存中没有DataFrame。"
@@ -116,6 +119,18 @@ class ToolManager:
     def describe_data(self, df_name: str):
         if df_name not in self.state["dataframes"]: return f"错误: 找不到DataFrame '{df_name}'"
         return f"'{df_name}' 的描述性统计:\n{self.state['dataframes'][df_name].describe().to_string()}"
+
+    def join_dataframes(self, left_df_name: str, right_df_name: str, on: list, how: str, new_df_name: str):
+        if left_df_name not in self.state["dataframes"]: return f"错误: 找不到左侧DataFrame '{left_df_name}'"
+        if right_df_name not in self.state["dataframes"]: return f"错误: 找不到右侧DataFrame '{right_df_name}'"
+        left_df = self.state["dataframes"][left_df_name]
+        right_df = self.state["dataframes"][right_df_name]
+        try:
+            merged_df = pd.merge(left_df, right_df, on=on, how=how)
+            self.state["dataframes"][new_df_name] = merged_df
+            return f"成功将 '{left_df_name}' 和 '{right_df_name}' 合并为 '{new_df_name}'。新DataFrame有 {len(merged_df)} 行。"
+        except Exception as e:
+            return f"合并DataFrame时出错: {e}"
 
     def correlation_analysis(self, df_name: str):
         if df_name not in self.state["dataframes"]: return f"错误: 找不到DataFrame '{df_name}'"
@@ -157,3 +172,4 @@ class ToolManager:
 
     def finish_task(self, summary: str):
         return {"summary": summary, "status": "finished"}
+    
