@@ -47,7 +47,7 @@
 2. 克隆仓库:
 ```bash
 git clone https://github.com/WALKERKILLER/Talk-to-Data.git
-cd talk-to-data
+cd Talk-to-Data-Main
 ```
 
 3. 安装依赖:
