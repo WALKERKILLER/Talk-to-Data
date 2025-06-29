@@ -12,12 +12,8 @@ plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 class Evaluator:
-    # --- (核心修改) ---
-    # 1. 移除 base_url 的硬编码默认值 "https://api.deepseek.com/v1"
-    # 2. 新增 model_name 参数，用于接收用户指定的模型
     def __init__(self, api_key, base_url, model_name):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
-        # 3. 使用传入的 model_name，而不是硬编码的 "deepseek-reasoner"
         self.model = model_name
 
     def generate_performance_chart(self, history, save_path):
