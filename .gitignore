@@ -20,3 +20,4 @@
 !templates/index.html
 !LICENSE
 !.gitignore
+!requirements.txt

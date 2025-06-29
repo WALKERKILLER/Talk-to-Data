@@ -1,0 +1,6 @@
+flask
+pandas
+numpy
+matplotlib
+plotly
+openai
