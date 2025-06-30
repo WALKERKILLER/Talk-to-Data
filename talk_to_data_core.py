@@ -48,7 +48,8 @@ class TalkToDataCore:
             else:
                 return f"文件 '{filename}' 是一个辅助文件或不支持的格式，已跳过加载。"
             self.tool_manager.state["dataframes"][df_name] = df
-            df_head_info = df.head().to_markdown(index=False)
+            # 将 to_markdown() 替换为 to_string() 以避免对 'tabulate' 库的依赖
+            df_head_info = df.head().to_string(index=False)
             return f"文件 '{filename}' 已成功加载为 DataFrame '{df_name}'。\n数据预览：\n\n{df_head_info}"
         except Exception as e:
             return f"加载文件 '{filename}' 时发生严重错误: {e}"
@@ -121,10 +122,22 @@ class TalkToDataCore:
             if action.get("error"):
                 observation = f"解析错误: {action.get('error')}"
             else:
+                # --- MODIFICATION START ---
+                # This block is rewritten for robustness to handle various JSON structures from the LLM.
                 tool_name = action.get("tool")
-                tool_args = action.get("args", {})
-                yield {"type": "action", "content": f"调用工具: {tool_name}，参数: {json.dumps(tool_args, ensure_ascii=False)}"}
-                observation = self.tool_manager.dispatch(tool_name, **tool_args)
+                if not tool_name:
+                    observation = "解析错误：模型输出的JSON中缺少 'tool' 字段。"
+                else:
+                    # Determine the source of arguments. Prioritize a valid 'args' dictionary.
+                    # If 'args' is not a valid dictionary, fall back to using the top-level keys.
+                    if 'args' in action and isinstance(action.get('args'), dict):
+                        tool_args = action['args']
+                    else:
+                        tool_args = {k: v for k, v in action.items() if k != 'tool'}
+                    
+                    yield {"type": "action", "content": f"调用工具: {tool_name}，参数: {json.dumps(tool_args, ensure_ascii=False)}"}
+                    observation = self.tool_manager.dispatch(tool_name, **tool_args)
+                # --- MODIFICATION END ---
             
             try:
                 json.dumps(observation)
