@@ -3,8 +3,14 @@
 ![Electron-Python Data Analysis](https://img.shields.io/badge/Electron-Python-blue)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/WALKERKILLER/Talk-to-Data)
-![](https://dl.img.timecdn.cn/2025/07/01/round.png)
-一个基于Electron和Python的桌面应用，通过自然语言指令实现智能数据分析。
+<p align="center">
+    <img src="https://dl.img.timecdn.cn/2025/07/01/round.png" height="250px">
+</p>
+
+<p align="center">
+基于Electron和Python的桌面应用，通过自然语言指令实现智能数据分析。
+</p>
+
 ![](https://dl3.img.timecdn.cn/2025/06/29/PREVIEW.png)
 ![](https://dl.img.timecdn.cn/2025/06/29/EXAMPLE.png)
 ## ✨ 功能特性
