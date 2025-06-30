@@ -10,22 +10,19 @@ import uuid
 import os
 from contextlib import redirect_stdout
 
-# --- 状态化内存 ---
-STATE = {}
-
-def reset_state():
-    """重置全局状态，为新任务做准备。"""
-    global STATE
-    STATE = { "dataframes": {}, "plots": [] }
+# --- 状态化内存 (修改) ---
+# 全局 STATE 和 reset_state() 已被移除
 
 # --- 中文字体配置 ---
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 class ToolManager:
-    def __init__(self, plot_save_dir):
+    # (修改) __init__ 接收一个 state 对象
+    def __init__(self, plot_save_dir, session_state):
         self.plot_save_dir = plot_save_dir
-        self.state = STATE
+        # (修改) state 不再是全局的，而是与当前 ToolManager 实例绑定的会话状态
+        self.state = session_state
         self._tools = {
             "run_python_code": self.run_python_code,
             "generate_plot": self.generate_plot,
@@ -63,9 +60,9 @@ class ToolManager:
             {"name": "correlation_analysis", "description": "计算DataFrame中数值列的相关系数矩阵。", "parameters": {"type": "object", "properties": {"df_name": {"type": "string"}}, "required": ["df_name"]}},
             {"name": "handle_missing_values", "description": "处理DataFrame中的缺失值。", "parameters": {"type": "object", "properties": {"df_name": {"type": "string"}, "method": {"type": "string", "enum": ["fill_mean", "fill_median", "fill_mode", "drop"]}}, "required": ["df_name", "method"]}},
             {"name": "train_linear_regression", "description": "训练一个简单的线性回归模型。", "parameters": {"type": "object", "properties": {"df_name": {"type": "string"}, "target_column": {"type": "string"}, "feature_columns": {"type": "array", "items": {"type": "string"}}}, "required": ["df_name", "target_column", "feature_columns"]}},
-            {"name": "finish_task", "description": "所有分析任务完成时调用此工具，提交最终总结。", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}},
+            {"name": "finish_task", "description": "当一个子任务分析完成时调用此工具，提交阶段性总结。用户可能还会提出后续问题。", "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}},
         ]
-
+        
     def dispatch(self, tool_name, **kwargs):
         if tool_name not in self._tools: return f"错误：未知的工具 '{tool_name}'"
         try: return self._tools[tool_name](**kwargs)
@@ -172,4 +169,3 @@ class ToolManager:
 
     def finish_task(self, summary: str):
         return {"summary": summary, "status": "finished"}
-    

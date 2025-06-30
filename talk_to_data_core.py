@@ -5,7 +5,7 @@ import re
 import os
 import pandas as pd
 from openai import OpenAI
-from tools import ToolManager, reset_state
+from tools import ToolManager
 
 try:
     import geopandas as gpd
@@ -14,16 +14,14 @@ except ImportError:
 
 class TalkToDataCore:
 
-    # =========================================================================
-    # 所有方法，包括 __init__, _parse_response, run 等，都定义在这个 Class 之下
-    # 它们的 def 关键字都在同一个缩进级别
-    # =========================================================================
-
-    def __init__(self, api_key, base_url, model_name, plot_save_dir):
+    def __init__(self, api_key, base_url, model_name, plot_save_dir, session_state):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model_name
-        reset_state()
-        self.tool_manager = ToolManager(plot_save_dir=plot_save_dir)
+        self.tool_manager = ToolManager(
+            plot_save_dir=plot_save_dir, 
+            session_state=session_state
+        )
+        self.system_prompt_content = self._construct_system_prompt()
 
     def _sanitize_filename_for_df_name(self, filename: str) -> str:
         base_name = os.path.splitext(filename)[0]
@@ -64,7 +62,7 @@ class TalkToDataCore:
 1.  **思考 (Thought)**: 在 `<thought>` 标签中分析当前情况，明确你的目标，并规划下一步需要做什么。**如果存在多个 DataFrame，你应该首先使用 `list_dataframes` 工具来了解它们各自的结构。**
 2.  **行动 (Action)**: 根据你的思考，在 `<action>` 标签中以严格的 JSON 格式选择一个最合适的工具来执行。JSON 格式必须为: `{{"tool": "tool_name", "args": {{...}}}}`
 3.  你将得到一个 **观察 (Observation)** 结果，这是工具执行的输出。
-重复以上步骤，直到任务完成。当所有分析都完成后，必须使用 `finish_task` 工具来提交你的最终结论和总结。
+重复以上步骤，直到当前子任务完成。当一个阶段的分析完成后，使用 `finish_task` 工具来提交你的阶段性结论和总结。用户可能会根据你的总结提出新的问题。
 你可用的工具有:
 {json.dumps(tool_definitions, indent=2, ensure_ascii=False)}
 请务必严格遵循 `<thought>` 和 `<action>` 的输出格式，不要有任何多余的文字。
@@ -92,24 +90,25 @@ class TalkToDataCore:
                     pass
             return thought, {"error": f"行动指令不是一个有效的JSON格式。收到的内容: {action_str}"}
 
-    def run(self, task: str):
-        system_prompt = self._construct_system_prompt()
-        history = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": task}
-        ]
+    def run(self, task: str, llm_history: list):
+        if not any(msg['role'] == 'system' for msg in llm_history):
+            llm_history.insert(0, {"role": "system", "content": self.system_prompt_content})
+        
+        llm_history.append({"role": "user", "content": task})
+        
         max_turns = 25
         for i in range(max_turns):
             yield {"type": "progress", "value": (i / max_turns) * 100, "step": i + 1, "total_steps": max_turns}
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
-                    messages=history,
+                    messages=llm_history,
                     temperature=0.1,
                 )
                 llm_output = response.choices[0].message.content
             except Exception as e:
                 yield {"type": "observation", "content": f"调用LLM API时出错: {e}"}
+                llm_history.pop() 
                 break
             
             thought, action = self._parse_response(llm_output)
@@ -117,7 +116,7 @@ class TalkToDataCore:
             if thought:
                 yield {"type": "thought", "content": thought}
             
-            history.append({"role": "assistant", "content": llm_output})
+            llm_history.append({"role": "assistant", "content": llm_output})
 
             if action.get("error"):
                 observation = f"解析错误: {action.get('error')}"
@@ -137,8 +136,8 @@ class TalkToDataCore:
             if isinstance(observation, dict) and observation.get("status") == "finished":
                 yield {"type": "progress", "value": 100, "step": i + 1, "total_steps": max_turns}
                 yield {"type": "final_summary", "content": observation['summary']}
-                return
+                break
             
-            history.append({"role": "user", "content": f"观察结果:\n{str(observation)}"})
-        
-        yield {"type": "final_summary", "content": "任务已达到最大步数限制，未能完成。"}
+            llm_history.append({"role": "user", "content": f"观察结果:\n{str(observation)}"})
+        else:
+            yield {"type": "final_summary", "content": "任务已达到最大步数限制，未能完成。"}

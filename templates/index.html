@@ -37,25 +37,38 @@
         <aside class="sidebar glass-panel" id="sidebar">
             <div class="sidebar-header">
                 <h2>Talk to Data</h2>
-                <p>对话式分析工具</p>
+                <button id="new-chat-btn" class="btn tertiary">＋ 新建对话</button>
             </div>
-            <div class="sidebar-section">
-                <h4>开始分析</h4>
-                <form id="analysis-form">
-                    <div class="form-group">
-                        <label for="task-input">分析任务</label>
-                        <textarea id="task-input" name="task" rows="4" placeholder="例如：分析各地区的总销售额..."></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="file-input">上传数据 (CSV,Excel,JSON,SHP)</label>
-                        <div class="file-input-wrapper">
-                            <input type="file" id="file-input" name="file" accept=".csv,.xlsx,.xls,.json,.shp,.dbf,.shx,.prj" required multiple>
-                            <span id="file-name" class="file-name-label">未选择文件</span>
+
+            <!-- (新增) 会话历史记录 -->
+            <div class="sidebar-section" id="session-history-container">
+                <h4>会话历史</h4>
+                <ul id="session-list">
+                    <!-- 历史记录项将由JS动态插入 -->
+                </ul>
+            </div>
+
+            <!-- (修改) 将原表单包裹在一个新的div中，以便于显示/隐藏 -->
+            <div id="new-analysis-section">
+                <div class="sidebar-section">
+                    <h4>开始新分析</h4>
+                    <form id="analysis-form">
+                        <div class="form-group">
+                            <label for="task-input">分析任务</label>
+                            <textarea id="task-input" name="task" rows="4" placeholder="例如：分析各地区的总销售额..."></textarea>
                         </div>
-                    </div>
-                    <button type="submit" id="submit-btn" class="btn primary">开始分析</button>
-                </form>
+                        <div class="form-group">
+                            <label for="file-input">上传数据 (CSV,Excel,JSON,SHP)</label>
+                            <div class="file-input-wrapper">
+                                <input type="file" id="file-input" name="file" accept=".csv,.xlsx,.xls,.json,.shp,.dbf,.shx,.prj" required multiple>
+                                <span id="file-name" class="file-name-label">未选择文件</span>
+                            </div>
+                        </div>
+                        <button type="submit" id="submit-btn" class="btn primary">开始分析</button>
+                    </form>
+                </div>
             </div>
+            
             <div class="sidebar-section">
                 <h4>模型设置</h4>
                 <form id="settings-form">
@@ -86,6 +99,15 @@
         <main class="main-content glass-panel">
             <div id="message-container">
                 <!-- Analysis steps and welcome message will be dynamically inserted here -->
+            </div>
+            <!-- (新增) 聊天输入区域 -->
+            <div id="chat-input-container" class="hidden">
+                <form id="continue-chat-form">
+                    <textarea id="chat-input" placeholder="输入你的后续问题..." rows="1"></textarea>
+                    <button type="submit" id="send-chat-btn" title="发送">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.949a.75.75 0 00.95.539h2.368a.75.75 0 010 1.5H4.643a.75.75 0 00-.95.539l-1.414 4.949a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" /></svg>
+                    </button>
+                </form>
             </div>
         </main>
     </div>
