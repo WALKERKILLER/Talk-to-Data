@@ -6,7 +6,7 @@ import uuid
 import json
 import datetime
 import re
-import shutil # <--- 1. 导入 shutil 库
+import shutil 
 from flask import Flask, render_template, request, stream_with_context, Response, send_from_directory, jsonify
 from openai import OpenAI, AuthenticationError, APIConnectionError
 from talk_to_data_core import TalkToDataCore
@@ -100,15 +100,19 @@ def start_session():
         session_state=session['state']
     )
 
-    load_messages = []
+    load_messages_html = []
     files_to_process = [p for p in saved_files_paths if not p.lower().endswith(('.dbf', '.shx', '.prj', '.cpg', '.sbn', '.sbx'))]
     for filepath in files_to_process:
-        message = agent_core.load_data_from_filepath(filepath)
-        load_messages.append(message)
+        message_html = agent_core.load_data_from_filepath(filepath)
+        load_messages_html.append(message_html)
     
-    initial_observation = "\n\n".join(load_messages)
-    frontend_system_message = {'type': 'system', 'content': initial_observation}
-    session['llm_history'].append({"role": "user", "content": f"数据加载完成。摘要如下：\n{initial_observation}"})
+    initial_observation_html = "\n".join(load_messages_html)
+    frontend_system_message = {'type': 'system', 'content': initial_observation_html}
+    
+    # LLM历史记录仍然使用纯文本，以保持简洁
+    df_info_for_llm = "\n".join([f"DataFrame '{name}' with columns {list(df.columns)}" for name, df in session['state']['dataframes'].items()])
+    session['llm_history'].append({"role": "user", "content": f"数据加载完成。摘要如下：\n{df_info_for_llm}"})
+
 
     return jsonify({
         "success": True,
@@ -116,7 +120,6 @@ def start_session():
         "initial_message": frontend_system_message
     })
 
-# --- 2. 添加新的删除路由 ---
 @app.route('/delete_session', methods=['POST'])
 def delete_session():
     data = request.json
@@ -126,7 +129,6 @@ def delete_session():
 
     session = session_manager.get_session(session_id)
     if not session:
-        # 即使后端内存中没有，也尝试删除可能存在的文件夹
         session_path_to_delete = os.path.join(SESSIONS_FOLDER, session_id)
         if os.path.isdir(session_path_to_delete):
             shutil.rmtree(session_path_to_delete)
@@ -134,18 +136,13 @@ def delete_session():
 
     session_path = session.get('session_path')
     try:
-        # 从磁盘上删除整个会话文件夹
         if os.path.isdir(session_path):
             shutil.rmtree(session_path)
-        
-        # 从后端内存中删除会话
         del session_manager.sessions[session_id]
-        
         return jsonify({"success": True, "message": f"会话 {session_id} 已成功删除。"}), 200
 
     except Exception as e:
         return jsonify({"success": False, "message": f"删除会话时发生错误: {e}"}), 500
-# -----------------------------
 
 @app.route('/continue_analysis', methods=['POST'])
 def continue_analysis():
@@ -222,56 +219,91 @@ def serve_session_plot(session_id, filename):
     directory = os.path.join(SESSIONS_FOLDER, session_id, 'plots')
     return send_from_directory(directory, filename)
 
+# --- 修改：全面优化 Markdown 导出功能 ---
 @app.route('/export_markdown', methods=['POST'])
 def export_markdown():
     history_data = request.get_json()
     if not history_data:
         return Response('{"error": "没有提供历史数据"}', status=400, mimetype='application/json')
     
-    markdown_content = []
+    md = []
     report_title = "Talk to Data 分析报告"
     export_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    markdown_content.append(f"# {report_title}\n\n**导出时间:** {export_time}\n\n---\n")
+    md.append(f"# {report_title}\n\n**导出时间:** {export_time}\n\n---\n")
+
+    icon_map = {
+        'system': '⚙️', 'user_request': '👤', 'thought': '🧠', 
+        'action': '⚡️', 'observation': '📊', 'final_summary': '📝',
+        'evaluation': '⭐'
+    }
 
     for message in history_data:
         msg_type_raw = message.get("type", "unknown")
-        msg_type = msg_type_raw.title().replace('_', ' ')
+        msg_type_title = msg_type_raw.replace('_', ' ').title()
+        icon = icon_map.get(msg_type_raw, '💬')
         content = message.get("content", "")
+        
+        md.append(f"## {icon} {msg_type_title}\n")
 
         if msg_type_raw == 'user_request':
-            task_text = content.get('task', '')
-            icon_map = {'user_request': '👤'}
-            markdown_content.append(f"## {icon_map.get(msg_type_raw, '💬')} 用户请求\n\n{task_text}\n")
-            continue
+            md.append(f"**任务:** {content.get('task', '无')}\n")
+            if content.get('files'):
+                md.append("**相关文件:**\n")
+                for filename in content.get('files'):
+                    md.append(f"- `{filename}`\n")
+        
+        elif msg_type_raw == 'system':
+            # 清理HTML标签，保留可读文本
+            text_content = re.sub('<[^<]+?>', ' ', str(content)).replace('  ', ' ').strip()
+            md.append(f"{text_content}\n")
             
-        if msg_type_raw == 'action':
+        elif msg_type_raw == 'thought':
+            md.append(f"> {content}\n")
+            
+        elif msg_type_raw == 'action':
             tool_match = re.search(r'调用工具: ([\w_]+)', content)
             args_match = re.search(r'参数: (\{.*\})$', content, re.S)
             if tool_match and args_match:
                 tool_name = tool_match.group(1)
+                md.append(f"**工具**: `{tool_name}`\n")
                 try:
                     args_dict = json.loads(args_match.group(1))
-                    formatted_content = f"**工具**: `{tool_name}`\n\n**参数**:\n```json\n{json.dumps(args_dict, indent=2, ensure_ascii=False)}\n```"
+                    code = args_dict.get('code')
+                    if code:
+                        md.append("**代码**:\n")
+                        md.append(f"```python\n{code}\n```\n")
+                    else:
+                        md.append("**参数**:\n")
+                        md.append(f"```json\n{json.dumps(args_dict, indent=2, ensure_ascii=False)}\n```\n")
                 except json.JSONDecodeError:
-                    formatted_content = f"```\n{content}\n```"
+                    md.append(f"**原始参数**:\n```\n{args_match.group(1)}\n```\n")
             else:
-                 formatted_content = f"```\n{content}\n```"
-            markdown_content.append(f"## ⚡️ {msg_type}\n\n{formatted_content}\n")
-        elif msg_type_raw in ['system', 'thought', 'final_summary', 'observation']:
-            icon_map = {'system': '⚙️', 'thought': '🧠', 'observation': '📊', 'final_summary': '📝'}
-            markdown_content.append(f"## {icon_map.get(msg_type_raw, '💬')} {msg_type}\n\n")
-            
-            if 'sessions/' in str(content) and any(ext in str(content) for ext in ['.png', '.jpg', '.jpeg']):
-                plot_web_path_match = re.search(r'(sessions/.*?\.png)', str(content))
-                if plot_web_path_match:
-                    plot_filename = os.path.basename(plot_web_path_match.group(1))
-                    markdown_content.append(f"![生成的图表: {plot_filename}]({plot_filename})\n\n*(注意: 图片文件需要与本报告放在同一目录下才能显示)*\n")
-                else:
-                    markdown_content.append(f"```\n{str(content)}\n```\n")
-            else:
-                markdown_content.append(f"```\n{str(content)}\n```\n")
+                 md.append(f"```\n{content}\n```\n")
 
-    full_markdown = "\n".join(markdown_content)
+        elif msg_type_raw == 'observation':
+            if '图表已生成并保存于:' in str(content):
+                plot_path = content.split(':')[-1].strip()
+                plot_filename = os.path.basename(plot_path)
+                md.append(f"![生成的图表]({plot_filename})\n\n*(注意: 图片文件需与本报告放在同一目录下才能显示)*\n")
+            elif '<div class="table-wrapper">' in str(content):
+                 # 对于表格，我们无法直接转为Markdown，所以提示用户
+                 md.append("观察结果为一个表格，已在应用内显示。Markdown格式无法完美呈现复杂表格。\n")
+            else:
+                md.append(f"```\n{str(content)}\n```\n")
+
+        elif msg_type_raw == 'final_summary':
+            md.append(f"{content}\n")
+            
+        elif msg_type_raw == 'evaluation':
+            md.append(f"- **综合评分**: {content.get('score', 'N/A')} / 10\n")
+            md.append(f"- **评语**: {content.get('justification', '无')}\n")
+            if content.get('chart_path'):
+                chart_filename = os.path.basename(content.get('chart_path'))
+                md.append(f"\n![性能图表]({chart_filename})\n")
+
+        md.append("\n---\n")
+
+    full_markdown = "\n".join(md)
     filename = f"Talk_to_Data_Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
     
     return Response(
@@ -279,6 +311,7 @@ def export_markdown():
         mimetype="text/markdown",
         headers={"Content-Disposition": f"attachment;filename={filename}"}
     )
+# ------------------------------------
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5001, debug=False)

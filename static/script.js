@@ -118,8 +118,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 <button class="delete-session-btn" title="删除会话"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192Z"></path></svg></button>
             `;
             li.addEventListener('click', (e) => { if (!e.target.closest('.delete-session-btn')) switchToSession(session.id); });
-            
-            // --- 核心修改：删除按钮的事件监听器 ---
             li.querySelector('.delete-session-btn').addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (confirm(`确定要删除这个会话吗？\n"${session.task}"\n\n此操作将同时删除服务器上的相关文件，且不可恢复。`)) {
@@ -130,26 +128,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             body: JSON.stringify({ session_id: session.id })
                         });
                         const result = await response.json();
-                        if (!response.ok || !result.success) {
-                            throw new Error(result.message || '从服务器删除会话失败');
-                        }
-                        
-                        // 服务器成功删除后，再处理前端
+                        if (!response.ok || !result.success) { throw new Error(result.message || '从服务器删除会话失败'); }
                         delete sessions[session.id];
                         saveSessionsToStorage();
-                        
-                        if (currentSessionId === session.id) {
-                            switchToNewChat();
-                        }
+                        if (currentSessionId === session.id) { switchToNewChat(); }
                         renderSessionList();
-
-                    } catch (error) {
-                        alert(`删除失败: ${error.message}`);
-                    }
+                    } catch (error) { alert(`删除失败: ${error.message}`); }
                 }
             });
-            // ------------------------------------
-
             ui.sessionList.appendChild(li);
         });
     };
@@ -165,10 +151,25 @@ document.addEventListener('DOMContentLoaded', () => {
         bubble.appendChild(contentWrapper);
         const iconKey = type === 'user_request' ? 'user_request' : type;
         contentWrapper.innerHTML = `<h3>${icons[iconKey] || ''} ${titles[type] || '消息'}</h3>`; 
+        
         let formattedContent, isHtml = false;
-        if (type === 'action') { formattedContent = renderActionCard(content); isHtml = true; } 
-        else if (type === 'evaluation') { formattedContent = renderEvaluation(content); isHtml = true; } 
-        else if (type === 'observation' && typeof content === 'string' && content.includes('图表已生成并保存于:')) {
+        
+        // --- 修改：增加内容格式化逻辑 ---
+        if (type === 'action') {
+            formattedContent = renderActionCard(content);
+            isHtml = true;
+        } else if (type === 'evaluation') {
+            formattedContent = renderEvaluation(content);
+            isHtml = true;
+        } else if (type === 'observation' && typeof content === 'string' && content.includes('<div class="table-wrapper">')) {
+            // 直接渲染从后端接收的HTML表格
+            formattedContent = content;
+            isHtml = true;
+        } else if (type === 'system' && typeof content === 'string') {
+            // 渲染系统消息，并将文件名替换为<code class="file-tag">
+            formattedContent = content.replace(/'([^']+\.[a-zA-Z0-9]+)'/g, '<code class="file-tag">$1</code>');
+            isHtml = true;
+        } else if (type === 'observation' && typeof content === 'string' && content.includes('图表已生成并保存于:')) {
             const path = content.split(':').pop().trim();
             formattedContent = `<p>图表已生成。</p><a href="${path}" target="_blank"><img src="${path}" alt="生成的图表" style="max-width: 100%; border-radius: 8px; cursor: pointer;"></a>`;
             isHtml = true;
@@ -178,8 +179,11 @@ document.addEventListener('DOMContentLoaded', () => {
              formattedContent = `${DOMPurify.sanitize(marked.parse(content.task))}${fileListHtml}`;
              isHtml = true;
         } else {
+            // 默认行为：将内容作为Markdown解析
             formattedContent = String(content);
         }
+        // --- 结束修改 ---
+
         renderContent(contentWrapper, formattedContent, isHtml);
         if (type === 'evaluation') ui.exportBtn.classList.remove('hidden');
     };
@@ -287,8 +291,37 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveSettings = () => { const settings = { apiBaseUrl: ui.apiBaseUrl.value.trim(), apiKey: ui.apiKey.value.trim(), modelName: ui.modelName.value.trim() }; localStorage.setItem('talkToDataSettings', JSON.stringify(settings)); ui.saveSettingsBtn.textContent = '已保存!'; setTimeout(() => { ui.saveSettingsBtn.textContent = '保存设置'; }, 2000); };
     const loadSettings = () => { const savedSettings = localStorage.getItem('talkToDataSettings'); if (savedSettings) { const settings = JSON.parse(savedSettings); ui.apiBaseUrl.value = settings.apiBaseUrl || 'https://api.deepseek.com/v1'; ui.apiKey.value = settings.apiKey || ''; ui.modelName.value = settings.modelName || 'deepseek-chat'; } else { ui.apiBaseUrl.value = 'https://api.deepseek.com/v1'; ui.modelName.value = 'deepseek-chat'; } const theme = localStorage.getItem('theme') || 'dark'; document.body.setAttribute('data-theme', theme); };
     const testConnection = async () => { const apiKey = ui.apiKey.value.trim(); const apiBaseUrl = ui.apiBaseUrl.value.trim(); const statusDiv = ui.connectionStatus; if (!apiKey || !apiBaseUrl) { alert('请先填写 API Key 和 API 地址。'); return; } statusDiv.textContent = '正在测试...'; statusDiv.className = 'connection-status'; try { const response = await fetch('/test_connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey, api_base_url: apiBaseUrl }) }); const result = await response.json(); if (response.ok && result.success) { statusDiv.textContent = result.message; statusDiv.classList.add('success'); } else { statusDiv.textContent = result.message || '连接失败，请检查控制台获取更多信息。'; statusDiv.classList.add('error'); } } catch (error) { statusDiv.textContent = `客户端错误: ${error.message}`; statusDiv.classList.add('error'); } };
-    const renderContent = (element, text, isHtml) => { const contentDiv = document.createElement('div'); if (isHtml) { contentDiv.innerHTML = text; } else { contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(text)); } element.appendChild(contentDiv); if (window.renderMathInElement) renderMathInElement(element, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}], throwOnError: false }); element.querySelectorAll('pre code').forEach(hljs.highlightElement); scrollToBottom(); };
     
+    const renderContent = (element, text, isHtml) => {
+        const contentDiv = document.createElement('div');
+        if (isHtml) {
+            // 使用DOMPurify清理HTML，但允许表格相关标签和样式类
+            contentDiv.innerHTML = DOMPurify.sanitize(text, {
+                ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div'],
+                ADD_ATTR: ['class']
+            });
+        } else {
+            // 解析Markdown
+            contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(text));
+        }
+        element.appendChild(contentDiv);
+        
+        // 数学公式和代码高亮
+        if (window.renderMathInElement) {
+            renderMathInElement(element, {
+                delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}],
+                throwOnError: false
+            });
+        }
+        element.querySelectorAll('pre code').forEach(el => {
+             // 确保没有被高亮两次
+            if (!el.classList.contains('hljs')) {
+                hljs.highlightElement(el);
+            }
+        });
+        scrollToBottom();
+    };
+
     const showProgressBadge = () => {
         currentProgress = { percent: 0, text: '正在初始化...' };
         updateProgressBadge(currentProgress.percent, currentProgress.text);
@@ -305,7 +338,59 @@ document.addEventListener('DOMContentLoaded', () => {
             ui.progressStatusText.textContent = statusText;
         }
     };
-    const renderActionCard = (actionData) => { const toolMatch = actionData.match(/调用工具: ([\w_]+)/); const argsMatch = actionData.match(/参数: (\{.*\})$/s); if (!toolMatch || !argsMatch) return `<div class="action-card"><div class="param-item">${actionData}</div></div>`; const toolName = toolMatch[1]; let args = {}; try { args = JSON.parse(argsMatch[1]); } catch (e) { return `<div class="action-card"><div class="tool-name">${toolName}</div><div class="param-item"><pre>${argsMatch[1]}</pre></div></div>`; } const argKeys = Object.keys(args); let paramsHtml; if (argKeys.length === 0) { paramsHtml = '<div class="param-item">无参数</div>'; } else { paramsHtml = argKeys.map(key => { const value = args[key]; const valueStr = JSON.stringify(value, null, 2); const sanitizedValue = valueStr.replace(/</g, "<").replace(/>/g, ">"); return `<div class="param-item"><strong>${key}:</strong><pre><code>${sanitizedValue}</code></pre></div>`; }).join(''); } return `<div class="action-card"><div class="tool-name">${toolName}</div>${paramsHtml}</div>`; };
+    
+    // --- 修改：美化Action Card的代码块显示 ---
+    const renderActionCard = (actionData) => {
+        const toolMatch = actionData.match(/调用工具: ([\w_]+)/);
+        const argsMatch = actionData.match(/参数: (\{.*\})$/s);
+    
+        if (!toolMatch || !argsMatch) {
+            return `<div class="action-card"><div class="param-item">${actionData}</div></div>`;
+        }
+    
+        const toolName = toolMatch[1];
+        let args = {};
+        try {
+            args = JSON.parse(argsMatch[1]);
+        } catch (e) {
+            // 如果解析失败，直接显示原始字符串
+            return `<div class="action-card"><div class="tool-name">${toolName}</div><div class="param-item"><pre><code>${argsMatch[1]}</code></pre></div></div>`;
+        }
+    
+        const argKeys = Object.keys(args);
+        let paramsHtml;
+        if (argKeys.length === 0) {
+            paramsHtml = '<div class="param-item">无参数</div>';
+        } else {
+            paramsHtml = argKeys.map(key => {
+                const value = args[key];
+                let valueHtml;
+                // 如果参数是 'code'，则特殊处理为Python代码块
+                if (key === 'code') {
+                    const codeElement = document.createElement('code');
+                    codeElement.className = 'language-python';
+                    codeElement.textContent = value; // 使用 textContent 防止 XSS
+                    const preElement = document.createElement('pre');
+                    preElement.appendChild(codeElement);
+                    valueHtml = preElement.outerHTML;
+                } else {
+                    // 其他参数格式化为JSON
+                    const valueStr = JSON.stringify(value, null, 2);
+                    const codeElement = document.createElement('code');
+                    codeElement.className = 'language-json';
+                    codeElement.textContent = valueStr;
+                    const preElement = document.createElement('pre');
+                    preElement.appendChild(codeElement);
+                    valueHtml = preElement.outerHTML;
+                }
+                return `<div class="param-item"><strong>${key}:</strong>${valueHtml}</div>`;
+            }).join('');
+        }
+    
+        return `<div class="action-card"><div class="tool-name">${toolName}</div>${paramsHtml}</div>`;
+    };
+    // ------------------------------------
+
     const createWelcomeMessage = () => { ui.messageContainer.innerHTML = ''; const welcomeHtml = `<h3>${icons.system} 欢迎使用 Talk to Data</h3><p>这是一个基于大语言模型的对话式数据分析工具。请在左侧侧边栏中：</p><ol><li>输入您的分析任务，例如：<em>"请分析数据，找出销售额最高的三个产品，并绘制柱状图"</em>。</li><li>上传您的数据文件（支持CSV, Excel, JSON, Shapefile等）。</li><li>点击“开始分析”按钮，在此处查看实时分析过程。</li></ol><p>或者，您可以从“会话历史”中加载之前的分析。</p>`; createBubble(welcomeHtml, 'system-message', true); };
     const createBubble = (content, type, isHtml) => { const bubble = document.createElement('div'); bubble.className = `message-bubble ${type}`; if (isHtml) bubble.innerHTML = content; else bubble.textContent = content; ui.messageContainer.appendChild(bubble); scrollToBottom(); return bubble; };
     const toggleTheme = () => { const newTheme = document.body.dataset.theme === 'dark' ? 'light' : 'dark'; document.body.dataset.theme = newTheme; localStorage.setItem('theme', newTheme); };

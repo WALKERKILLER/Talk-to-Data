@@ -10,18 +10,13 @@ import uuid
 import os
 from contextlib import redirect_stdout
 
-# --- 状态化内存 (修改) ---
-# 全局 STATE 和 reset_state() 已被移除
-
 # --- 中文字体配置 ---
 plt.rcParams['font.sans-serif'] = ['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
 class ToolManager:
-    # (修改) __init__ 接收一个 state 对象
     def __init__(self, plot_save_dir, session_state):
         self.plot_save_dir = plot_save_dir
-        # (修改) state 不再是全局的，而是与当前 ToolManager 实例绑定的会话状态
         self.state = session_state
         self._tools = {
             "run_python_code": self.run_python_code,
@@ -115,7 +110,18 @@ class ToolManager:
 
     def describe_data(self, df_name: str):
         if df_name not in self.state["dataframes"]: return f"错误: 找不到DataFrame '{df_name}'"
-        return f"'{df_name}' 的描述性统计:\n{self.state['dataframes'][df_name].describe().to_string()}"
+        
+        # --- 修改：为前端生成HTML表格 ---
+        try:
+            # describe() 的索引是统计量名称，所以 to_html 的 index 参数要为 True
+            desc_html = self.state['dataframes'][df_name].describe().to_html(classes='data-table data-table-stats', border=0, index=True)
+            return (
+                f"<strong>'{df_name}' 的描述性统计：</strong>"
+                f"<div class='table-wrapper'>{desc_html}</div>"
+            )
+        except Exception as e:
+            return f"为 '{df_name}' 生成描述性统计时出错: {e}"
+        # -----------------------------
 
     def join_dataframes(self, left_df_name: str, right_df_name: str, on: list, how: str, new_df_name: str):
         if left_df_name not in self.state["dataframes"]: return f"错误: 找不到左侧DataFrame '{left_df_name}'"

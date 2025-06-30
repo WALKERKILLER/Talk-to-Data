@@ -48,11 +48,24 @@ class TalkToDataCore:
             else:
                 return f"文件 '{filename}' 是一个辅助文件或不支持的格式，已跳过加载。"
             self.tool_manager.state["dataframes"][df_name] = df
-            # 将 to_markdown() 替换为 to_string() 以避免对 'tabulate' 库的依赖
-            df_head_info = df.head().to_string(index=False)
-            return f"文件 '{filename}' 已成功加载为 DataFrame '{df_name}'。\n数据预览：\n\n{df_head_info}"
+            
+            # --- 修改：为前端生成HTML表格 ---
+            try:
+                # to_html 会为前端生成一个美观的表格
+                df_head_html = df.head().to_html(classes='data-table', border=0, index=False)
+            except Exception:
+                # 如果生成HTML失败，回退到纯文本
+                df_head_html = f"<pre>{df.head().to_string(index=False)}</pre>"
+
+            return (
+                f"<p>文件 '{filename}' 已成功加载为 DataFrame '{df_name}'。</p>"
+                f"<strong>数据预览：</strong>"
+                f"<div class='table-wrapper'>{df_head_html}</div>"
+            )
+            # ---------------------------
+
         except Exception as e:
-            return f"加载文件 '{filename}' 时发生严重错误: {e}"
+            return f"<p>加载文件 '{filename}' 时发生严重错误: {e}</p>"
 
     def _construct_system_prompt(self):
         tool_definitions = self.tool_manager.get_tool_definitions()
@@ -95,7 +108,16 @@ class TalkToDataCore:
         if not any(msg['role'] == 'system' for msg in llm_history):
             llm_history.insert(0, {"role": "system", "content": self.system_prompt_content})
         
-        llm_history.append({"role": "user", "content": task})
+        # --- 修改：为LLM提供纯文本的数据加载信息 ---
+        initial_user_content = f"任务: {task}"
+        df_summaries = []
+        for name, df in self.tool_manager.state.get("dataframes", {}).items():
+            df_summaries.append(f"DataFrame '{name}' 的列为: {list(df.columns)}")
+        if df_summaries:
+            initial_user_content = "已加载以下数据:\n" + "\n".join(df_summaries) + f"\n\n用户的初始任务是: {task}"
+
+        llm_history.append({"role": "user", "content": initial_user_content})
+        # -----------------------------------
         
         max_turns = 25
         for i in range(max_turns):
@@ -122,14 +144,10 @@ class TalkToDataCore:
             if action.get("error"):
                 observation = f"解析错误: {action.get('error')}"
             else:
-                # --- MODIFICATION START ---
-                # This block is rewritten for robustness to handle various JSON structures from the LLM.
                 tool_name = action.get("tool")
                 if not tool_name:
                     observation = "解析错误：模型输出的JSON中缺少 'tool' 字段。"
                 else:
-                    # Determine the source of arguments. Prioritize a valid 'args' dictionary.
-                    # If 'args' is not a valid dictionary, fall back to using the top-level keys.
                     if 'args' in action and isinstance(action.get('args'), dict):
                         tool_args = action['args']
                     else:
@@ -137,7 +155,6 @@ class TalkToDataCore:
                     
                     yield {"type": "action", "content": f"调用工具: {tool_name}，参数: {json.dumps(tool_args, ensure_ascii=False)}"}
                     observation = self.tool_manager.dispatch(tool_name, **tool_args)
-                # --- MODIFICATION END ---
             
             try:
                 json.dumps(observation)
@@ -151,6 +168,14 @@ class TalkToDataCore:
                 yield {"type": "final_summary", "content": observation['summary']}
                 break
             
-            llm_history.append({"role": "user", "content": f"观察结果:\n{str(observation)}"})
+            # --- 修改：LLM的观察结果应该是纯文本，以避免上下文过大或解析问题 ---
+            # 如果观察结果是HTML表格，我们只传递一个简短的确认信息给LLM
+            if isinstance(observation, str) and observation.strip().startswith('<div class="table-wrapper">'):
+                 observation_for_llm = "表格已生成并显示给用户。"
+            else:
+                 observation_for_llm = str(observation)
+            llm_history.append({"role": "user", "content": f"观察结果:\n{observation_for_llm}"})
+            # -------------------------------------------------------------------
+
         else:
             yield {"type": "final_summary", "content": "任务已达到最大步数限制，未能完成。"}
