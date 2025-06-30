@@ -15,6 +15,9 @@ document.addEventListener('DOMContentLoaded', () => {
         maximizeBtn: getEl('maximize-btn'), closeBtn: getEl('close-btn'), contextMenu: getEl('context-menu'),
         newChatBtn: getEl('new-chat-btn'), newAnalysisSection: getEl('new-analysis-section'), sessionList: getEl('session-list'),
         chatInputContainer: getEl('chat-input-container'), continueChatForm: getEl('continue-chat-form'), chatInput: getEl('chat-input'),
+        imageLightbox: getEl('image-lightbox'),
+        lightboxImg: getEl('lightbox-img'),
+        lightboxClose: getEl('lightbox-close'),
     };
     
     // --- STATE MANAGEMENT ---
@@ -63,6 +66,26 @@ document.addEventListener('DOMContentLoaded', () => {
         ui.overlay.addEventListener('click', toggleSidebar);
         window.addEventListener('contextmenu', handleContextMenu);
         window.addEventListener('click', hideContextMenu);
+        ui.messageContainer.addEventListener('click', handleMessageContainerClick);
+        ui.lightboxClose.addEventListener('click', closeLightbox);
+        ui.imageLightbox.addEventListener('click', (e) => { if (e.target === ui.imageLightbox) closeLightbox(); });
+        window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !ui.imageLightbox.classList.contains('hidden')) closeLightbox(); });
+    };
+
+    const handleMessageContainerClick = (e) => {
+        if (e.target.classList.contains('generated-plot-img')) {
+            openLightbox(e.target);
+        }
+    };
+
+    const openLightbox = (imgElement) => {
+        ui.lightboxImg.src = imgElement.src;
+        ui.imageLightbox.classList.remove('hidden');
+    };
+
+    const closeLightbox = () => {
+        ui.imageLightbox.classList.add('hidden');
+        setTimeout(() => { ui.lightboxImg.src = ''; }, 300);
     };
 
     const loadSessionsFromStorage = () => { const storedSessions = localStorage.getItem('talkToDataSessions'); sessions = storedSessions ? JSON.parse(storedSessions) : {}; };
@@ -154,7 +177,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         let formattedContent, isHtml = false;
         
-        // --- 修改：增加内容格式化逻辑 ---
         if (type === 'action') {
             formattedContent = renderActionCard(content);
             isHtml = true;
@@ -162,16 +184,14 @@ document.addEventListener('DOMContentLoaded', () => {
             formattedContent = renderEvaluation(content);
             isHtml = true;
         } else if (type === 'observation' && typeof content === 'string' && content.includes('<div class="table-wrapper">')) {
-            // 直接渲染从后端接收的HTML表格
             formattedContent = content;
-            isHtml = true;
-        } else if (type === 'system' && typeof content === 'string') {
-            // 渲染系统消息，并将文件名替换为<code class="file-tag">
-            formattedContent = content.replace(/'([^']+\.[a-zA-Z0-9]+)'/g, '<code class="file-tag">$1</code>');
             isHtml = true;
         } else if (type === 'observation' && typeof content === 'string' && content.includes('图表已生成并保存于:')) {
             const path = content.split(':').pop().trim();
-            formattedContent = `<p>图表已生成。</p><a href="${path}" target="_blank"><img src="${path}" alt="生成的图表" style="max-width: 100%; border-radius: 8px; cursor: pointer;"></a>`;
+            formattedContent = `<p>图表已生成。点击可放大查看。</p><img src="${path}" alt="生成的图表" class="generated-plot-img" style="max-width: 100%; border-radius: 8px;">`;
+            isHtml = true;
+        } else if (type === 'system' && typeof content === 'string') {
+            formattedContent = content.replace(/'([^']+\.[a-zA-Z0-9]+)'/g, '<code class="file-tag">$1</code>');
             isHtml = true;
         } else if (type === 'user_request') {
              const filenames = content.files || [];
@@ -179,10 +199,8 @@ document.addEventListener('DOMContentLoaded', () => {
              formattedContent = `${DOMPurify.sanitize(marked.parse(content.task))}${fileListHtml}`;
              isHtml = true;
         } else {
-            // 默认行为：将内容作为Markdown解析
             formattedContent = String(content);
         }
-        // --- 结束修改 ---
 
         renderContent(contentWrapper, formattedContent, isHtml);
         if (type === 'evaluation') ui.exportBtn.classList.remove('hidden');
@@ -295,18 +313,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderContent = (element, text, isHtml) => {
         const contentDiv = document.createElement('div');
         if (isHtml) {
-            // 使用DOMPurify清理HTML，但允许表格相关标签和样式类
             contentDiv.innerHTML = DOMPurify.sanitize(text, {
-                ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div'],
-                ADD_ATTR: ['class']
+                ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'img', 'ul', 'li', 'span', 'h3', 'h4', 'p', 'strong'],
+                ADD_ATTR: ['class', 'style', 'src', 'alt']
             });
         } else {
-            // 解析Markdown
             contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(text));
         }
         element.appendChild(contentDiv);
         
-        // 数学公式和代码高亮
         if (window.renderMathInElement) {
             renderMathInElement(element, {
                 delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}],
@@ -314,7 +329,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         element.querySelectorAll('pre code').forEach(el => {
-             // 确保没有被高亮两次
             if (!el.classList.contains('hljs')) {
                 hljs.highlightElement(el);
             }
@@ -339,7 +353,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
-    // --- 修改：美化Action Card的代码块显示 ---
     const renderActionCard = (actionData) => {
         const toolMatch = actionData.match(/调用工具: ([\w_]+)/);
         const argsMatch = actionData.match(/参数: (\{.*\})$/s);
@@ -353,7 +366,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             args = JSON.parse(argsMatch[1]);
         } catch (e) {
-            // 如果解析失败，直接显示原始字符串
             return `<div class="action-card"><div class="tool-name">${toolName}</div><div class="param-item"><pre><code>${argsMatch[1]}</code></pre></div></div>`;
         }
     
@@ -365,16 +377,14 @@ document.addEventListener('DOMContentLoaded', () => {
             paramsHtml = argKeys.map(key => {
                 const value = args[key];
                 let valueHtml;
-                // 如果参数是 'code'，则特殊处理为Python代码块
                 if (key === 'code') {
                     const codeElement = document.createElement('code');
                     codeElement.className = 'language-python';
-                    codeElement.textContent = value; // 使用 textContent 防止 XSS
+                    codeElement.textContent = value;
                     const preElement = document.createElement('pre');
                     preElement.appendChild(codeElement);
                     valueHtml = preElement.outerHTML;
                 } else {
-                    // 其他参数格式化为JSON
                     const valueStr = JSON.stringify(value, null, 2);
                     const codeElement = document.createElement('code');
                     codeElement.className = 'language-json';
@@ -389,7 +399,69 @@ document.addEventListener('DOMContentLoaded', () => {
     
         return `<div class="action-card"><div class="tool-name">${toolName}</div>${paramsHtml}</div>`;
     };
-    // ------------------------------------
+
+    const renderEvaluation = (evalData) => {
+        const score = evalData.score || 0;
+        const justification = evalData.justification || '无';
+        const details = evalData.details || {};
+        const efficiency = evalData.efficiency_details || {};
+        const chart_path = evalData.chart_path;
+
+        const detailsHtml = `
+            <ul class="evaluation-details-list">
+                <li><span>任务完成度</span> <span class="score-value">${details.completeness || 'N/A'}/10</span></li>
+                <li><span>准确性</span> <span class="score-value">${details.accuracy || 'N/A'}/10</span></li>
+                <li><span>洞察力</span> <span class="score-value">${details.insight || 'N/A'}/10</span></li>
+                <li><span>效率</span> <span class="score-value">${details.efficiency || 'N/A'}/10</span></li>
+                <li><span>可视化质量</span> <span class="score-value">${details.visualization || 'N/A'}/10</span></li>
+            </ul>
+        `;
+        
+        const efficiencyHtml = `
+            <div class="efficiency-details">
+                <h4>分析路径</h4>
+                <div class="efficiency-grid">
+                    <div class="efficiency-item">
+                        <span class="efficiency-icon">🧠</span>
+                        <span class="efficiency-value">${efficiency.thoughts || 'N/A'}</span>
+                        <span class="efficiency-label">思考</span>
+                    </div>
+                    <div class="efficiency-item">
+                        <span class="efficiency-icon">⚡️</span>
+                        <span class="efficiency-value">${efficiency.actions || 'N/A'}</span>
+                        <span class="efficiency-label">行动</span>
+                    </div>
+                    <div class="efficiency-item">
+                        <span class="efficiency-icon">⚠️</span>
+                        <span class="efficiency-value">${efficiency.errors || 0}</span>
+                        <span class="efficiency-label">错误</span>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const chartHtml = chart_path 
+            ? `<div class="evaluation-chart-container"><img src="${chart_path}" alt="Evaluation Radar Chart" class="generated-plot-img"></div>` 
+            : '<div class="evaluation-chart-container no-chart">未生成评估图表</div>';
+
+        return `
+            <div class="evaluation-card">
+                <div class="evaluation-header">
+                    <h3>综合评分: <span class="final-score">${score}/10</span></h3>
+                    <p><strong>评语:</strong> ${DOMPurify.sanitize(justification)}</p>
+                </div>
+                <div class="evaluation-body">
+                    <div class="evaluation-left-panel">
+                        ${chartHtml}
+                    </div>
+                    <div class="evaluation-right-panel">
+                        ${detailsHtml}
+                        ${efficiencyHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+    };
 
     const createWelcomeMessage = () => { ui.messageContainer.innerHTML = ''; const welcomeHtml = `<h3>${icons.system} 欢迎使用 Talk to Data</h3><p>这是一个基于大语言模型的对话式数据分析工具。请在左侧侧边栏中：</p><ol><li>输入您的分析任务，例如：<em>"请分析数据，找出销售额最高的三个产品，并绘制柱状图"</em>。</li><li>上传您的数据文件（支持CSV, Excel, JSON, Shapefile等）。</li><li>点击“开始分析”按钮，在此处查看实时分析过程。</li></ol><p>或者，您可以从“会话历史”中加载之前的分析。</p>`; createBubble(welcomeHtml, 'system-message', true); };
     const createBubble = (content, type, isHtml) => { const bubble = document.createElement('div'); bubble.className = `message-bubble ${type}`; if (isHtml) bubble.innerHTML = content; else bubble.textContent = content; ui.messageContainer.appendChild(bubble); scrollToBottom(); return bubble; };
@@ -397,7 +469,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleSidebar = () => { ui.sidebar.classList.toggle('open'); ui.overlay.classList.toggle('open'); };
     const scrollToBottom = () => { ui.messageContainer.scrollTop = ui.messageContainer.scrollHeight; };
     const handleExport = () => { if (!currentSessionId || !sessions[currentSessionId]) { alert("没有可导出的分析内容。"); return; } const historyToExport = sessions[currentSessionId].history; fetch('/export_markdown', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(historyToExport) }).then(res => { if (!res.ok) throw new Error("导出失败"); const disposition = res.headers.get('Content-Disposition'); const filenameMatch = disposition && disposition.match(/filename="(.+?)"/); const filename = filenameMatch ? filenameMatch[1] : 'report.md'; return Promise.all([res.blob(), filename]); }).then(([blob, filename]) => { const url = window.URL.createObjectURL(blob); const a = document.createElement('a'); a.style.display = 'none'; a.href = url; a.download = filename; document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url); document.body.removeChild(a); }).catch(err => { console.error('Export failed:', err); alert(`导出报告失败: ${err.message}`); }); };
-    const renderEvaluation = (evalData) => { return `<div><h4>综合评分: ${evalData.score || 0}/10</h4><p><strong>评语:</strong> ${evalData.justification || '无'}</p>${evalData.chart_path ? `<div><img src="${evalData.chart_path}" alt="Performance Chart" style="max-width: 100%; border-radius: 8px;"></div>` : ''}</div>`; };
     
     init();
 });

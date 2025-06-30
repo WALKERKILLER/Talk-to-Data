@@ -200,8 +200,23 @@ def continue_analysis():
             history=history_for_report, generated_plots=web_plots
         )
         
-        eval_chart_save_path = os.path.join(session['plot_path'], f"eval_chart_{uuid.uuid4()}.png")
-        evaluator.generate_performance_chart(history=history_for_report, save_path=eval_chart_save_path)
+        # 1. 计算效率统计数据
+        thought_count = sum(1 for item in history_for_report if item.get('type') == 'thought')
+        action_count = sum(1 for item in history_for_report if item.get('type') == 'action')
+        error_count = sum(1 for item in history_for_report if '错误' in str(item.get('content','')).lower() and item.get('type') == 'observation')
+        
+        evaluation['efficiency_details'] = {
+            'thoughts': thought_count,
+            'actions': action_count,
+            'errors': error_count
+        }
+
+        # 2. 调用新的雷达图生成函数
+        eval_chart_save_path = os.path.join(session['plot_path'], f"eval_radar_{uuid.uuid4()}.png")
+        if 'details' in evaluation:
+             evaluator.generate_evaluation_radar_chart(details=evaluation['details'], save_path=eval_chart_save_path)
+        
+        # 3. 将图表路径添加到评估结果中
         if os.path.exists(eval_chart_save_path):
             eval_chart_web_path = os.path.join('sessions', session_id, 'plots', os.path.basename(eval_chart_save_path)).replace('\\', '/')
             evaluation['chart_path'] = eval_chart_web_path
@@ -219,7 +234,6 @@ def serve_session_plot(session_id, filename):
     directory = os.path.join(SESSIONS_FOLDER, session_id, 'plots')
     return send_from_directory(directory, filename)
 
-# --- 修改：全面优化 Markdown 导出功能 ---
 @app.route('/export_markdown', methods=['POST'])
 def export_markdown():
     history_data = request.get_json()
@@ -297,9 +311,21 @@ def export_markdown():
         elif msg_type_raw == 'evaluation':
             md.append(f"- **综合评分**: {content.get('score', 'N/A')} / 10\n")
             md.append(f"- **评语**: {content.get('justification', '无')}\n")
+            if 'details' in content:
+                md.append("\n**详细评分:**\n")
+                md.append(f"- 任务完成度: {content['details'].get('completeness', 'N/A')}/10\n")
+                md.append(f"- 准确性: {content['details'].get('accuracy', 'N/A')}/10\n")
+                md.append(f"- 洞察力: {content['details'].get('insight', 'N/A')}/10\n")
+                md.append(f"- 效率: {content['details'].get('efficiency', 'N/A')}/10\n")
+                md.append(f"- 可视化质量: {content['details'].get('visualization', 'N/A')}/10\n")
+            if 'efficiency_details' in content:
+                 md.append("\n**分析路径:**\n")
+                 md.append(f"- 思考步骤: {content['efficiency_details'].get('thoughts', 'N/A')}\n")
+                 md.append(f"- 工具调用: {content['efficiency_details'].get('actions', 'N/A')}\n")
+                 md.append(f"- 发生错误: {content['efficiency_details'].get('errors', 'N/A')}\n")
             if content.get('chart_path'):
                 chart_filename = os.path.basename(content.get('chart_path'))
-                md.append(f"\n![性能图表]({chart_filename})\n")
+                md.append(f"\n![评估雷达图]({chart_filename})\n")
 
         md.append("\n---\n")
 
@@ -311,7 +337,6 @@ def export_markdown():
         mimetype="text/markdown",
         headers={"Content-Disposition": f"attachment;filename={filename}"}
     )
-# ------------------------------------
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5001, debug=False)
