@@ -1,6 +1,13 @@
 flask
+waitress
 pandas
 numpy
 matplotlib
 plotly
 openai
+scikit-learn
+python-dotenv
+xlrd
+openpyxl
+pyshp
+pyarrow

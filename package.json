@@ -1,6 +1,6 @@
 {
   "name": "talk-to-data",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A conversational data analysis tool.",
   "main": "main.js",
   "author": "WALKERKILLER",
@@ -9,8 +9,8 @@
     "start": "concurrently \"npm:start-python\" \"npm:start-electron\"",
     "start-python": "python app.py",
     "start-electron": "electron .",
-    "build:python": "pyinstaller py-backend.spec",
-    "build:electron": "electron-builder",
+    "build:python": "pyinstaller py-backend.spec --noconfirm --upx-dir=\"C:/path/to/your/upx/folder\"",
+    "build:electron": "electron-builder --win --x64",
     "package": "npm run build:python && npm run build:electron"
   },
   "devDependencies": {
@@ -19,8 +19,9 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.yourcompany.talktodata",
+    "appId": "com.WALKERKILLER.talktodata",
     "productName": "Talk to Data",
+    "compression": "maximum",
     "directories": {
       "output": "dist"
     },
@@ -28,7 +29,7 @@
       "main.js",
       "preload.js",
       "package.json",
-      "node_modules/**/*"
+      "assets/**/*"
     ],
     "extraResources": [
       {
@@ -38,7 +39,24 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "asar": true,
+      "publisherName": "WALKERKILLER"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns",
+      "asar": true
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

@@ -1,21 +1,36 @@
-// main.js (最终回归版 - 确保 npm start 可用)
+// main.js (修正版)
 const { app, BrowserWindow, ipcMain, shell, clipboard } = require('electron');
-const path = require('path');
+const path = require('path'); // <--- 这里是修正的地方
 const { spawn } = require('child_process');
 const http = require('http');
 
 let pyProc = null;
 let mainWindow = null;
 
-// isDev 的判断方式保持不变
 const isDev = !app.isPackaged;
 const isWindows = process.platform === 'win32';
+const isMac = process.platform === 'darwin';
+
+// 为 Windows 设置 App User Model ID
+if (isWindows) {
+  app.setAppUserModelId('com.yourcompany.talktodata');
+}
+
+// 获取图标路径的辅助函数
+function getIconPath() {
+    if (isWindows) {
+        return path.join(__dirname, 'assets', 'icon.ico');
+    }
+    if (isMac) {
+        return path.join(__dirname, 'assets', 'icon.icns');
+    }
+    return path.join(__dirname, 'assets', 'icon.png');
+}
 
 function createPyProc() {
     let scriptPath = path.join(__dirname, 'app.py');
     let executable = 'python';
 
-    // 如果是打包后的生产环境
     if (!isDev) {
         if (isWindows) {
             executable = path.join(process.resourcesPath, 'app', 'py-backend', 'py-backend.exe');
@@ -28,8 +43,6 @@ function createPyProc() {
     console.log(`[Electron] Executable: ${executable}`);
     if(isDev) console.log(`[Electron] Script: ${scriptPath}`);
 
-    // 在开发模式下，我们直接用'python'和脚本路径
-    // 在生产模式下，我们直接运行可执行文件，不再需要脚本路径作为参数
     pyProc = isDev ? spawn(executable, [scriptPath]) : spawn(executable);
 
     pyProc.stdout.on('data', (data) => console.log(`[Python] ${data.toString()}`));
@@ -60,6 +73,7 @@ function createMainWindow() {
     minHeight: 768,
     frame: false,
     titleBarStyle: 'hidden',
+    icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -68,7 +82,7 @@ function createMainWindow() {
     titleBarOverlay: isWindows ? { color: 'rgba(0, 0, 0, 0)', symbolColor: '#74b1be', height: 40 } : undefined
   });
 
-  if (process.platform === 'darwin') {
+  if (isMac) {
     mainWindow.setTrafficLightPosition({ x: 15, y: 15 });
   }
 
@@ -87,6 +101,10 @@ function createMainWindow() {
 }
 
 app.on('ready', async () => {
+  if (isMac) {
+      app.dock.setIcon(getIconPath());
+  }
+
   createPyProc();
   await checkBackendReady();
   createMainWindow();
@@ -104,7 +122,6 @@ app.on('activate', () => {
   if (mainWindow === null) createMainWindow();
 });
 
-// IPC 事件监听保持不变
 ipcMain.on('close-window', () => mainWindow?.close());
 ipcMain.on('minimize-window', () => mainWindow?.minimize());
 ipcMain.on('toggle-maximize-window', () => { if (mainWindow?.isMaximized()) mainWindow.restore(); else mainWindow.maximize(); });
