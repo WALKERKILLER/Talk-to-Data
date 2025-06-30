@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('api', {
   // ¿É¿¿µÄ¼ôÌù°å²Ù×÷
   writeToClipboard: (text) => ipcRenderer.send('clipboard:write', text),
   readFromClipboard: () => ipcRenderer.invoke('clipboard:read'),
+  writeImageToClipboard: (buffer) => ipcRenderer.send('clipboard:write-image', buffer),
 });

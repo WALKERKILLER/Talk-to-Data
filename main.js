@@ -1,5 +1,5 @@
 // main.js (修正版)
-const { app, BrowserWindow, ipcMain, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, clipboard, nativeImage} = require('electron');
 const path = require('path'); // <--- 这里是修正的地方
 const { spawn } = require('child_process');
 const http = require('http');
@@ -127,3 +127,7 @@ ipcMain.on('minimize-window', () => mainWindow?.minimize());
 ipcMain.on('toggle-maximize-window', () => { if (mainWindow?.isMaximized()) mainWindow.restore(); else mainWindow.maximize(); });
 ipcMain.on('clipboard:write', (event, text) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', async () => clipboard.readText());
+ipcMain.on('clipboard:write-image', (event, buffer) => {
+    const image = nativeImage.createFromBuffer(buffer);
+    clipboard.writeImage(image);
+});

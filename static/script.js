@@ -15,9 +15,18 @@ document.addEventListener('DOMContentLoaded', () => {
         maximizeBtn: getEl('maximize-btn'), closeBtn: getEl('close-btn'), contextMenu: getEl('context-menu'),
         newChatBtn: getEl('new-chat-btn'), newAnalysisSection: getEl('new-analysis-section'), sessionList: getEl('session-list'),
         chatInputContainer: getEl('chat-input-container'), continueChatForm: getEl('continue-chat-form'), chatInput: getEl('chat-input'),
+        // --- START OF CHANGE: Add all lightbox elements ---
         imageLightbox: getEl('image-lightbox'),
         lightboxImg: getEl('lightbox-img'),
+        lightboxImageContainer: getEl('lightbox-image-container'),
         lightboxClose: getEl('lightbox-close'),
+        lightboxZoomIn: getEl('lightbox-zoom-in'),
+        lightboxZoomOut: getEl('lightbox-zoom-out'),
+        lightboxZoomLevel: getEl('lightbox-zoom-level'),
+        lightboxResetZoom: getEl('lightbox-reset-zoom'),
+        lightboxCopy: getEl('lightbox-copy'),
+        lightboxDownload: getEl('lightbox-download'),
+        // --- END OF CHANGE ---
     };
     
     // --- STATE MANAGEMENT ---
@@ -25,6 +34,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let sessions = {};
     let rightClickedElement = null;
     let currentProgress = { percent: 0, text: '' };
+    // --- START OF CHANGE: Add lightbox state variables ---
+    let lightboxState = {
+        scale: 1,
+        panning: false,
+        start: { x: 0, y: 0 },
+        transform: { x: 0, y: 0 },
+        lastSrc: ''
+    };
+    // --- END OF CHANGE ---
 
     const icons = {
         system: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.07 2.24a.75.75 0 00-1.06-.04l-7.5 7.5a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06l-6.22-6.22H17a.75.75 0 000-1.5H4.81l6.22-6.22a.75.75 0 00.04-1.06z" clip-rule="evenodd" /></svg>`,
@@ -66,12 +84,122 @@ document.addEventListener('DOMContentLoaded', () => {
         ui.overlay.addEventListener('click', toggleSidebar);
         window.addEventListener('contextmenu', handleContextMenu);
         window.addEventListener('click', hideContextMenu);
+        
+        // --- START OF CHANGE: Replace single listener with dedicated lightbox listeners ---
         ui.messageContainer.addEventListener('click', handleMessageContainerClick);
-        ui.lightboxClose.addEventListener('click', closeLightbox);
-        ui.imageLightbox.addEventListener('click', (e) => { if (e.target === ui.imageLightbox) closeLightbox(); });
-        window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !ui.imageLightbox.classList.contains('hidden')) closeLightbox(); });
+        setupLightboxListeners();
+        // --- END OF CHANGE ---
     };
 
+    // --- START OF CHANGE: Complete lightbox logic ---
+    const setupLightboxListeners = () => {
+        ui.lightboxClose.addEventListener('click', closeLightbox);
+        ui.imageLightbox.addEventListener('click', (e) => {
+            if (e.target === ui.imageLightbox || e.target === ui.lightboxImageContainer) {
+                closeLightbox();
+            }
+        });
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !ui.imageLightbox.classList.contains('hidden')) {
+                closeLightbox();
+            }
+        });
+
+        // Toolbar listeners
+        ui.lightboxZoomIn.addEventListener('click', () => zoomLightbox(1.2));
+        ui.lightboxZoomOut.addEventListener('click', () => zoomLightbox(1 / 1.2));
+        ui.lightboxResetZoom.addEventListener('click', resetLightbox);
+        ui.lightboxCopy.addEventListener('click', copyLightboxImage);
+        ui.lightboxDownload.addEventListener('click', downloadLightboxImage);
+
+        // Panning listeners
+        ui.lightboxImg.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            lightboxState.panning = true;
+            lightboxState.start = { x: e.clientX - lightboxState.transform.x, y: e.clientY - lightboxState.transform.y };
+            ui.lightboxImg.classList.add('dragging');
+        });
+
+        window.addEventListener('mouseup', () => {
+            lightboxState.panning = false;
+            ui.lightboxImg.classList.remove('dragging');
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!lightboxState.panning) return;
+            e.preventDefault();
+            lightboxState.transform.x = e.clientX - lightboxState.start.x;
+            lightboxState.transform.y = e.clientY - lightboxState.start.y;
+            applyLightboxTransform();
+        });
+        
+        // Mouse wheel zoom
+        ui.lightboxImageContainer.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 1 / 1.1 : 1.1;
+            zoomLightbox(delta, { x: e.clientX, y: e.clientY });
+        });
+    };
+    
+    const applyLightboxTransform = () => {
+        const { scale, transform } = lightboxState;
+        ui.lightboxImg.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${scale})`;
+    };
+
+    const zoomLightbox = (factor, origin = null) => {
+        const newScale = Math.max(0.1, Math.min(lightboxState.scale * factor, 10));
+        const oldScale = lightboxState.scale;
+
+        if (origin) {
+            const rect = ui.lightboxImageContainer.getBoundingClientRect();
+            const mouseX = origin.x - rect.left;
+            const mouseY = origin.y - rect.top;
+
+            lightboxState.transform.x = mouseX - (mouseX - lightboxState.transform.x) * (newScale / oldScale);
+            lightboxState.transform.y = mouseY - (mouseY - lightboxState.transform.y) * (newScale / oldScale);
+        }
+
+        lightboxState.scale = newScale;
+        ui.lightboxZoomLevel.textContent = `${Math.round(lightboxState.scale * 100)}%`;
+        applyLightboxTransform();
+    };
+
+    const resetLightbox = () => {
+        lightboxState.scale = 1;
+        lightboxState.transform = { x: 0, y: 0 };
+        ui.lightboxZoomLevel.textContent = '100%';
+        ui.lightboxImg.style.transition = 'transform 0.3s ease';
+        applyLightboxTransform();
+        setTimeout(() => ui.lightboxImg.style.transition = 'transform 0.2s ease-out', 300);
+    };
+
+    const copyLightboxImage = async () => {
+        if (!window.api || !window.api.writeImageToClipboard) {
+            alert("此功能仅在桌面应用中可用。");
+            return;
+        }
+        try {
+            const response = await fetch(lightboxState.lastSrc);
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const buffer = new Uint8Array(arrayBuffer);
+            await window.api.writeImageToClipboard(buffer);
+            alert("图片已复制到剪贴板！");
+        } catch (error) {
+            console.error('复制图片失败:', error);
+            alert("复制图片失败。");
+        }
+    };
+    
+    const downloadLightboxImage = () => {
+        const a = document.createElement('a');
+        a.href = lightboxState.lastSrc;
+        a.download = `talk-to-data-chart-${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+    
     const handleMessageContainerClick = (e) => {
         if (e.target.classList.contains('generated-plot-img')) {
             openLightbox(e.target);
@@ -79,14 +207,20 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const openLightbox = (imgElement) => {
+        lightboxState.lastSrc = imgElement.src;
         ui.lightboxImg.src = imgElement.src;
         ui.imageLightbox.classList.remove('hidden');
+        resetLightbox(); // Reset view every time a new image is opened
     };
 
     const closeLightbox = () => {
         ui.imageLightbox.classList.add('hidden');
-        setTimeout(() => { ui.lightboxImg.src = ''; }, 300);
+        setTimeout(() => {
+            ui.lightboxImg.src = '';
+            lightboxState.lastSrc = '';
+        }, 300);
     };
+    // --- END OF CHANGE ---
 
     const loadSessionsFromStorage = () => { const storedSessions = localStorage.getItem('talkToDataSessions'); sessions = storedSessions ? JSON.parse(storedSessions) : {}; };
     const saveSessionsToStorage = () => { localStorage.setItem('talkToDataSessions', JSON.stringify(sessions)); };
@@ -314,8 +448,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const contentDiv = document.createElement('div');
         if (isHtml) {
             contentDiv.innerHTML = DOMPurify.sanitize(text, {
-                ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'img', 'ul', 'li', 'span', 'h3', 'h4', 'p', 'strong'],
-                ADD_ATTR: ['class', 'style', 'src', 'alt']
+                ADD_TAGS: ['table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'img', 'ul', 'li', 'span', 'h3', 'h4', 'p', 'strong', 'svg', 'path'],
+                ADD_ATTR: ['class', 'style', 'src', 'alt', 'viewbox', 'fill']
             });
         } else {
             contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(text));
