@@ -1,6 +1,6 @@
-// main.js (修正版)
+// main.js
 const { app, BrowserWindow, ipcMain, shell, clipboard, nativeImage} = require('electron');
-const path = require('path'); // <--- 这里是修正的地方
+const path = require('path'); 
 const { spawn } = require('child_process');
 const http = require('http');
 
